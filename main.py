@@ -38,7 +38,6 @@ class SudokuSolver:
         else:
             raise TypeError("Grid must be an 81-char string or a 9x9 list.")
 
-    # Core constraint ops
     def assign(self, cell: str, d: str) -> bool:
         other = self.values[cell] - {d}
         return all(self.eliminate(cell, d2) for d2 in list(other))
@@ -181,14 +180,11 @@ class SudokuSolver:
         return None
 
     def solve(self) -> str:
-        # If it's already solved, check validity
         if self.is_solved():
             if self.validate_solution():
                 return "Sudoku is already solved and valid:\n\n" + self.__str__()
             else:
                 return "Sudoku grid is filled but invalid:\n\n" + self.__str__()
-
-        # Otherwise, try to solve it
         if self.search() is None:
             raise ValueError("No solution found (or puzzle invalid).")
 
