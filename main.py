@@ -32,7 +32,6 @@ class SudokuSolver:
                     if not self.assign(s, ch):
                         raise ValueError("Invalid puzzle (contradiction on load).")
         elif isinstance(grid, list):
-            # 9x9 list of ints/str
             flat = "".join(str(x) for row in grid for x in row)
             flat = flat.replace("0", ".")
             self.__init__(flat)
@@ -41,25 +40,20 @@ class SudokuSolver:
 
     # Core constraint ops
     def assign(self, cell: str, d: str) -> bool:
-        "Assign digit d to cell; eliminate all other candidates."
         other = self.values[cell] - {d}
         return all(self.eliminate(cell, d2) for d2 in list(other))
 
     def eliminate(self, cell: str, d: str) -> bool:
-        "Eliminate digit d from cell. Propagate; return False if contradiction."
         if d not in self.values[cell]:
             return True
         self.values[cell].remove(d)
-        # If a cell has no candidates -> contradiction
         if len(self.values[cell]) == 0:
             return False
-        # If a cell is solved, eliminate from peers
         if len(self.values[cell]) == 1:
             d2 = next(iter(self.values[cell]))
             for p in PEERS[cell]:
                 if not self.eliminate(p, d2):
                     return False
-        # If a unit has only one place for d, assign it there (hidden single)
         for unit in UNITS[cell]:
             places = [s for s in unit if d in self.values[s]]
             if len(places) == 0:
@@ -69,9 +63,18 @@ class SudokuSolver:
                     return False
         return True
 
-    # Human-like strategies
+    def hidden_singles(self) -> bool:
+        changed = False
+        for unit in ROW_UNITS + COL_UNITS + BOX_UNITS:
+            for d in Digits:
+                places = [s for s in unit if d in self.values[s]]
+                if len(places) == 1:
+                    if self.assign(places[0], d) is False:
+                        return False
+                    changed = True
+        return changed
+
     def naked_pairs(self) -> bool:
-        "If two cells in a unit share the same pair of candidates, remove from others."
         changed = False
         for unit in ROW_UNITS + COL_UNITS + BOX_UNITS:
             pairs = defaultdict(list)
@@ -82,65 +85,14 @@ class SudokuSolver:
                 if len(cells) == 2:
                     for s in unit:
                         if s not in cells and self.values[s].intersection(candset):
-                            before = len(self.values[s])
                             self.values[s] -= candset
                             if len(self.values[s]) == 0:
                                 return False
-                            changed |= (len(self.values[s]) != before)
+                            changed = True
         return changed
 
     def pointing_pairs(self) -> bool:
-        """
-        Box-line reduction:
-        If in a box a candidate appears only in one row (or column), remove it from that row (or col) outside the box.
-        """
         changed = False
-        for box in BOX_UNITS:
-            # group by row
-            rows = defaultdict(list)
-            cols = defaultdict(list)
-            for s in box:
-                r, c = s[0], s[1]
-                for d in self.values[s]:
-                    rows[(r, d)].append(s)
-                    cols[(c, d)].append(s)
-            # Row-wise
-            for (r, d), cells in rows.items():
-                if 1 <= len(cells) <= 3:
-                    # All occurrences of d in this box sit on row r
-                    # Remove d from other cells on row r outside this box
-                    out_cells = set(next(u for u in UNITS[cells[0]] if set(box).issubset(set(u)) == False and len(set(u) & set(box)) == 0))  # not great, replace below
-            # The above attempt is convoluted; do it explicitly:
-        return self._pointing_pairs_clean()
-
-    def _pointing_pairs_clean(self) -> bool:
-        changed = False
-        # For each box, check each digit's positions
-        for box in BOX_UNITS:
-            for d in Digits:
-                positions = [s for s in box if d in self.values[s]]
-                if len(positions) < 2:
-                    continue
-                rows_in = set(p[0] for p in positions)
-                cols_in = set(p[1] for p in positions)
-                # confined to one row
-                if len(rows_in) == 1:
-                    r = next(iter(rows_in))
-                    row = next(u for u in ROW_UNITS if r in u[0])
-                    for s in row:
-                        if s not in box and d in self.values[s]:
-                            self.values[s].discard(d)
-                            changed = True
-                # confined to one column
-                if len(cols_in) == 1:
-                    c = next(iter(cols_in))
-                    col = next(u for u in COL_UNITS if c in u[0][1])  # fix below
-        # The above index picking is awkward; implement safely:
-        return self._pointing_pairs_final(changed)
-
-    def _pointing_pairs_final(self, changed_in=False) -> bool:
-        changed = changed_in
-        # Correct implementation using maps for rows/cols
         row_map = {r: [r + c for c in COLS] for r in ROWS}
         col_map = {c: [r + c for r in ROWS] for c in COLS}
         for box in BOX_UNITS:
@@ -164,24 +116,10 @@ class SudokuSolver:
                             changed = True
         return changed
 
-    def hidden_singles(self) -> bool:
-        "If a digit appears only once as a candidate in a unit, place it."
-        changed = False
-        for unit in ROW_UNITS + COL_UNITS + BOX_UNITS:
-            for d in Digits:
-                places = [s for s in unit if d in self.values[s]]
-                if len(places) == 1:
-                    if self.assign(places[0], d) is False:
-                        return False
-                    changed = True
-        return changed
-
     def propagate_all(self) -> bool:
-        "Repeat strategies until no more progress; return False on contradiction."
         stalled = False
         while not stalled:
             snapshot = self._snapshot()
-            # Basic eliminations are handled inside assign/eliminate
             if self.hidden_singles() is False:
                 return False
             res = self.naked_pairs()
@@ -205,16 +143,27 @@ class SudokuSolver:
             return len(vals) == len(set(vals))
         return all(unit_ok(u) for u in ROW_UNITS + COL_UNITS + BOX_UNITS)
 
-    # Search with MRV + least-constraining value ordering
+    def validate_solution(self) -> bool:
+        """Check if the current grid is a valid solved Sudoku."""
+        if not self.is_solved():
+            return False
+
+        def valid_group(group):
+            vals = [next(iter(self.values[s])) for s in group]
+            return set(vals) == set("123456789")
+
+        for unit in ROW_UNITS + COL_UNITS + BOX_UNITS:
+            if not valid_group(unit):
+                return False
+        return True
+
     def search(self) -> Optional[Dict[str, Set[str]]]:
         if not self.propagate_all():
             return None
         if self.is_solved():
             return self.values
-        # MRV: choose cell with fewest candidates
         unsolved = [s for s in CELLS if len(self.values[s]) > 1]
         cell = min(unsolved, key=lambda s: len(self.values[s]))
-        # Least-constraining value ordering
         def lcv_score(d):
             score = 0
             for p in PEERS[cell]:
@@ -232,16 +181,19 @@ class SudokuSolver:
         return None
 
     def solve(self) -> str:
-        # If it's already solved, just return the current board
+        # If it's already solved, check validity
         if self.is_solved():
-            return self.__str__()
+            if self.validate_solution():
+                return "Sudoku is already solved and valid:\n\n" + self.__str__()
+            else:
+                return "Sudoku grid is filled but invalid:\n\n" + self.__str__()
 
+        # Otherwise, try to solve it
         if self.search() is None:
             raise ValueError("No solution found (or puzzle invalid).")
 
-        return self.__str__()
+        return "Solved Sudoku:\n\n" + self.__str__()
 
-    # Helpers
     def _deepcopy(self) -> Dict[str, Set[str]]:
         return {k: set(v) for k, v in self.values.items()}
 
@@ -249,7 +201,6 @@ class SudokuSolver:
         self.values = {k: set(v) for k, v in snapshot.items()}
 
     def as_string(self) -> str:
-        "Return solved grid as 81-char string (or current state if not fully solved)."
         out = []
         for s in CELLS:
             if len(self.values[s]) == 1:
@@ -259,7 +210,6 @@ class SudokuSolver:
         return "".join(out)
 
     def __str__(self) -> str:
-        "Pretty print the current board."
         width = 1 + max(len(self.values[s]) for s in CELLS)
         line = "+".join(["-" * (width * 3)] * 3)
         rows = []
@@ -277,12 +227,12 @@ class SudokuSolver:
         return "\n".join(rows)
 
 
-# Quick test
 if __name__ == "__main__":
-    # A known hard puzzle (leave 0 or '.' for blanks)
     hard = "000000907000420180000705026100904000050000040000507009920108000034059000507000000"
     s = SudokuSolver(hard)
     print("Input:")
     print(s)
     print("\nSolving...")
     print(s.solve())
+    print("\nAs 81-char string:")
+    print(s.as_string())
