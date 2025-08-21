@@ -232,8 +232,13 @@ class SudokuSolver:
         return None
 
     def solve(self) -> str:
+        # If it's already solved, just return the current board
+        if self.is_solved():
+            return self.__str__()
+
         if self.search() is None:
             raise ValueError("No solution found (or puzzle invalid).")
+
         return self.__str__()
 
     # Helpers
@@ -281,5 +286,3 @@ if __name__ == "__main__":
     print(s)
     print("\nSolving...")
     print(s.solve())
-    print("\nAs 81-char string:")
-    print(s.as_string())
