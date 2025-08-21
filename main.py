@@ -230,5 +230,3 @@ if __name__ == "__main__":
     print(s)
     print("\nSolving...")
     print(s.solve())
-    print("\nAs 81-char string:")
-    print(s.as_string())
