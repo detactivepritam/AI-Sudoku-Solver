@@ -224,8 +224,8 @@ class SudokuSolver:
 
 
 if __name__ == "__main__":
-    hard = "000000907000420180000705026100904000050000040000507009920108000034059000507000000"
-    s = SudokuSolver(hard)
+    Puzzle = "000260701680070090190004500820100040004602900050003028009300074040050036703018000"
+    s = SudokuSolver(Puzzle)
     print("Input:")
     print(s)
     print("\nSolving...")
