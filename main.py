@@ -226,7 +226,7 @@ class SudokuSolver:
 if __name__ == "__main__":
     Puzzle = "000260701680070090190004500820100040004602900050003028009300074040050036703018000"
     s = SudokuSolver(Puzzle)
-    print("Input:")
+    print("puzzle :")
     print(s)
     print("\nSolving...")
     print(s.solve())
